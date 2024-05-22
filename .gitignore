@@ -1,5 +1,7 @@
 ### @author <a href="https://github.com/Manson-chen">程序员Jiandong</a> ###
 
+.
+
 HELP.md
 target/
 !.mvn/wrapper/maven-wrapper.jar
@@ -144,3 +146,5 @@ fabric.properties
 # Android studio 3.1+ serialized cache file
 .idea/caches/build_file_checksums.ser
 
+.DS_Store
+.DS_Store
