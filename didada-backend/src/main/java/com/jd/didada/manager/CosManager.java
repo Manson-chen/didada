@@ -24,7 +24,7 @@ public class CosManager {
     private COSClient cosClient;
 
     /**
-     * 上传对象
+     * 上传对象，通过文件路径上传
      *
      * @param key 唯一键
      * @param localFilePath 本地文件路径
@@ -37,7 +37,7 @@ public class CosManager {
     }
 
     /**
-     * 上传对象
+     * 上传对象，直接通过文件上传
      *
      * @param key 唯一键
      * @param file 文件

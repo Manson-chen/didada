@@ -50,12 +50,15 @@ public class FileController {
      */
     @PostMapping("/upload")
     public BaseResponse<String> uploadFile(@RequestPart("file") MultipartFile multipartFile,
-            UploadFileRequest uploadFileRequest, HttpServletRequest request) {
+            UploadFileRequest uploadFileRequest, HttpServletRequest request) { // MultipartFile 没有用数组，这里上传的是单个文件
+        // 业务类型
         String biz = uploadFileRequest.getBiz();
+        // 一定要判断业务类型从而让文件上传到对应的业务中
         FileUploadBizEnum fileUploadBizEnum = FileUploadBizEnum.getEnumByValue(biz);
         if (fileUploadBizEnum == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
+        // 校验文件是否合法
         validFile(multipartFile, fileUploadBizEnum);
         User loginUser = userService.getLoginUser(request);
         // 文件目录：根据业务、用户来划分
@@ -67,6 +70,7 @@ public class FileController {
             // 上传文件
             file = File.createTempFile(filepath, null);
             multipartFile.transferTo(file);
+            // 使用对象存储去上传文件
             cosManager.putObject(filepath, file);
             // 返回可访问地址
             return ResultUtils.success(FileConstant.COS_HOST + filepath);
@@ -85,7 +89,7 @@ public class FileController {
     }
 
     /**
-     * 校验文件
+     * 校验文件，这里主要是检验头像文件，可以根据业务类型来增加校验不同的文件的功能
      *
      * @param multipartFile
      * @param fileUploadBizEnum 业务类型
@@ -97,9 +101,11 @@ public class FileController {
         String fileSuffix = FileUtil.getSuffix(multipartFile.getOriginalFilename());
         final long ONE_M = 1024 * 1024L;
         if (FileUploadBizEnum.USER_AVATAR.equals(fileUploadBizEnum)) {
+            // 校验文件大小
             if (fileSize > ONE_M) {
                 throw new BusinessException(ErrorCode.PARAMS_ERROR, "文件大小不能超过 1M");
             }
+            // 校验文件格式
             if (!Arrays.asList("jpeg", "jpg", "svg", "png", "webp").contains(fileSuffix)) {
                 throw new BusinessException(ErrorCode.PARAMS_ERROR, "文件类型错误");
             }
