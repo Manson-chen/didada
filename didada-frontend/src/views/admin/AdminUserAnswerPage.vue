@@ -1,23 +1,37 @@
 <template>
-  <div id="adminUserPage">
+  <div id="adminUserAnswerPage">
     <a-form
       :model="formSearchParams"
       :style="{ marginBottom: '20px' }"
       layout="inline"
       @submit="doSearch"
     >
-      <a-form-item field="userName" label="用户名">
+      <a-form-item field="resultName" label="结果名称">
         <a-input
           allow-clear
-          v-model="formSearchParams.userName"
-          placeholder="请输入用户名"
+          v-model="formSearchParams.resultName"
+          placeholder="请输入结果名称"
         />
       </a-form-item>
-      <a-form-item field="userProfile" label="用户简介">
+      <a-form-item field="resultDesc" label="结果描述">
         <a-input
           allow-clear
-          v-model="formSearchParams.userProfile"
-          placeholder="请输入用户简介"
+          v-model="formSearchParams.resultDesc"
+          placeholder="请输入结果描述"
+        />
+      </a-form-item>
+      <a-form-item field="appId" label="应用 id">
+        <a-input
+          allow-clear
+          v-model="formSearchParams.appId"
+          placeholder="请输入应用 id"
+        />
+      </a-form-item>
+      <a-form-item field="userId" label="用户 id">
+        <a-input
+          allow-clear
+          v-model="formSearchParams.userId"
+          placeholder="请输入用户 id"
         />
       </a-form-item>
       <a-form-item>
@@ -37,8 +51,14 @@
       }"
       @pageChange="onPageChange"
     >
-      <template #userAvatar="{ record }">
-        <a-image width="64px" :src="record.userAvatar" />
+      <template #resultPicture="{ record }">
+        <a-image width="64px" :src="record.resultPicture" />
+      </template>
+      <template #appType="{ record }">
+        {{ APP_TYPE_MAP[record.appType] }}
+      </template>
+      <template #scoringStrategy="{ record }">
+        {{ APP_TYPE_MAP[record.scoringStrategy] }}
       </template>
       <template #createTime="{ record }">
         {{ dayjs(record.createTime).format("YYYY-MM-DD HH:mm:ss") }}
@@ -56,17 +76,19 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, watchEffect } from "vue";
-import {
-  deleteUserUsingPost,
-  listUserByPageUsingPost,
-} from "@/api/userController";
+import { ref, watchEffect } from "vue";
 import API from "@/api";
 import message from "@arco-design/web-vue/es/message";
 import { dayjs } from "@arco-design/web-vue/es/_utils/date";
+import {
+  deleteUserAnswerUsingPost,
+  listUserAnswerByPageUsingPost,
+} from "@/api/userAnswerController";
+import { APP_TYPE_MAP } from "@/constant/app";
+import { APP_SCORING_STRATEGY_MAP } from "@/constant/app";
 
 // 定义表单搜索的参数为空
-const formSearchParams = ref<API.UserQueryRequest>({});
+const formSearchParams = ref<API.UserAnswerQueryRequest>({});
 
 // 初始化搜索条件（不应该被修改）
 const initSearchParams = {
@@ -74,19 +96,19 @@ const initSearchParams = {
   pageSize: 10,
 };
 
-const searchParams = ref<API.UserQueryRequest>({
+const searchParams = ref<API.UserAnswerQueryRequest>({
   // 将其初始值设置为initSearchParams对象的展开运算符（...）拷贝。
   ...initSearchParams,
 });
 
-const dataList = ref<API.User[]>();
+const dataList = ref<API.UserAnswer[]>();
 const total = ref<number>(0);
 
 /**
  * 加载数据
  */
 const loadData = async () => {
-  const res = await listUserByPageUsingPost(searchParams.value);
+  const res = await listUserAnswerByPageUsingPost(searchParams.value);
   if (res.data.code === 0) {
     // 如果前面的值为空，就赋值为空数组
     dataList.value = res.data.data?.records || [];
@@ -127,7 +149,7 @@ const onPageChange = (page: number) => {
 };
 
 const doDelete = async (record: any) => {
-  const res = await deleteUserUsingPost({ id: record.id });
+  const res = await deleteUserAnswerUsingPost({ id: record.id });
   if (res.data.code === 0) {
     loadData();
     message.success("删除成功");
@@ -143,21 +165,47 @@ const columns = [
     dataIndex: "id",
   },
   {
-    title: "账号",
-    dataIndex: "userAccount",
+    title: "选项",
+    dataIndex: "choices",
   },
   {
-    title: "用户名",
-    dataIndex: "userName",
+    title: "结果 id",
+    dataIndex: "resultId",
   },
   {
-    title: "用户头像",
-    dataIndex: "userAvatar",
-    slotName: "userAvatar",
+    title: "名称",
+    dataIndex: "resultName",
   },
   {
-    title: "权限",
-    dataIndex: "userRole",
+    title: "描述",
+    dataIndex: "resultDesc",
+  },
+  {
+    title: "图片",
+    dataIndex: "resultPicture",
+    slotName: "resultPicture",
+  },
+  {
+    title: "得分",
+    dataIndex: "resultScore",
+  },
+  {
+    title: "应用 id",
+    dataIndex: "appId",
+  },
+  {
+    title: "应用类型",
+    dataIndex: "appType",
+    slotName: "appType",
+  },
+  {
+    title: "评分策略",
+    dataIndex: "scoringStrategy",
+    slotName: "scoringStrategy",
+  },
+  {
+    title: "用户 id",
+    dataIndex: "userId",
   },
   {
     title: "创建时间",
