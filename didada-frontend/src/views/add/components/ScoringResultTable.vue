@@ -1,23 +1,23 @@
 <template>
-  <div id="adminAppPage">
+  <div id="scoringResultTable">
     <a-form
       :model="formSearchParams"
       :style="{ marginBottom: '20px' }"
       layout="inline"
       @submit="doSearch"
     >
-      <a-form-item field="appName" label="应用名称">
+      <a-form-item field="resultName" label="结果名称">
         <a-input
           allow-clear
-          v-model="formSearchParams.appName"
-          placeholder="请输入应用名称"
+          v-model="formSearchParams.resultName"
+          placeholder="请输入结果名称"
         />
       </a-form-item>
-      <a-form-item field="appDesc" label="应用描述">
+      <a-form-item field="resultDesc" label="结果描述">
         <a-input
           allow-clear
-          v-model="formSearchParams.appDesc"
-          placeholder="请输入应用描述"
+          v-model="formSearchParams.resultDesc"
+          placeholder="请输入结果描述"
         />
       </a-form-item>
       <a-form-item>
@@ -37,20 +37,8 @@
       }"
       @pageChange="onPageChange"
     >
-      <template #appType="{ record }">
-        {{ APP_TYPE_MAP[record.appType] }}
-      </template>
-      <template #scoringStrategy="{ record }">
-        {{ APP_SCORING_STRATEGY_MAP[record.scoringStrategy] }}
-      </template>
-      <template #reviewStatus="{ record }">
-        {{ REVIEW_STATUS_MAP[record.reviewStatus] }}
-      </template>
-      <template #appIcon="{ record }">
-        <a-image width="64px" :src="record.appIcon" />
-      </template>
-      <template #reviewTime="{ record }">
-        {{ dayjs(record.reviewTime).format("YYYY-MM-DD HH:mm:ss") }}
+      <template #resultPicture="{ record }">
+        <a-image width="64px" :src="record.resultPicture" />
       </template>
       <template #createTime="{ record }">
         {{ dayjs(record.createTime).format("YYYY-MM-DD HH:mm:ss") }}
@@ -60,22 +48,7 @@
       </template>
       <template #optional="{ record }">
         <a-space>
-          <a-button
-            status="success"
-            v-if="REVIEW_STATUS_ENUM.PASS !== record.reviewStatus"
-            @click="doReview(record, REVIEW_STATUS_ENUM.PASS, '符合要求')"
-            >通过
-          </a-button>
-        </a-space>
-        <a-space>
-          <a-button
-            status="warning"
-            v-if="REVIEW_STATUS_ENUM.REJECT !== record.reviewStatus"
-            @click="
-              doReview(record, REVIEW_STATUS_ENUM.REJECT, '不符合上架要求')
-            "
-            >拒绝
-          </a-button>
+          <a-button status="success" @click="doUpdate?.(record)">修改</a-button>
           <a-button status="danger" @click="doDelete(record)">删除</a-button>
         </a-space>
       </template>
@@ -84,44 +57,57 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watchEffect } from "vue";
+import { defineProps, ref, watchEffect, withDefaults, defineExpose } from "vue";
 import API from "@/api";
 import message from "@arco-design/web-vue/es/message";
 import { dayjs } from "@arco-design/web-vue/es/_utils/date";
 import {
-  deleteAppUsingPost,
-  doAppReviewUsingPost,
-  listAppByPageUsingPost,
-} from "@/api/appController";
-import {
-  APP_SCORING_STRATEGY_MAP,
-  APP_TYPE_MAP,
-  REVIEW_STATUS_MAP,
-  REVIEW_STATUS_ENUM,
-} from "@/constant/app";
+  deleteScoringResultUsingPost,
+  listScoringResultVoByPageUsingPost,
+} from "@/api/scoringResultController";
+
+interface Pros {
+  appId: string;
+  doUpdate: (scoringResult: API.ScoringResultVO) => void;
+}
+
+const props = withDefaults(defineProps<Pros>(), {
+  appId: () => {
+    return "";
+  },
+});
 
 // 定义表单搜索的参数为空
-const formSearchParams = ref<API.AppQueryRequest>({});
+const formSearchParams = ref<API.ScoringResultQueryRequest>({});
 
 // 初始化搜索条件（不应该被修改）
 const initSearchParams = {
   current: 1,
   pageSize: 10,
+  sortField: "createTime",
+  sortOrder: "descend",
 };
 
-const searchParams = ref<API.AppQueryRequest>({
+const searchParams = ref<API.ScoringResultQueryRequest>({
   // 将其初始值设置为initSearchParams对象的展开运算符（...）拷贝。
   ...initSearchParams,
 });
 
-const dataList = ref<API.App[]>();
+const dataList = ref<API.ScoringResultVO[]>();
 const total = ref<number>(0);
 
 /**
  * 加载数据
  */
 const loadData = async () => {
-  const res = await listAppByPageUsingPost(searchParams.value);
+  if (!props.appId) {
+    return;
+  }
+  const params = {
+    appId: props.appId as any,
+    ...searchParams.value,
+  };
+  const res = await listScoringResultVoByPageUsingPost(params);
   if (res.data.code === 0) {
     // 如果前面的值为空，就赋值为空数组
     dataList.value = res.data.data?.records || [];
@@ -130,6 +116,11 @@ const loadData = async () => {
     message.error("获取数据失败，" + res.data.message);
   }
 };
+
+// 暴露函数给父组件
+defineExpose({
+  loadData,
+});
 
 /**
  * 执行搜索
@@ -162,31 +153,12 @@ const onPageChange = (page: number) => {
 };
 
 const doDelete = async (record: any) => {
-  const res = await deleteAppUsingPost({ id: record.id });
+  const res = await deleteScoringResultUsingPost({ id: record.id });
   if (res.data.code === 0) {
     loadData();
     message.success("删除成功");
   } else {
     message.error("删除失败，" + res.data.message);
-  }
-};
-
-const doReview = async (
-  record: API.App,
-  reviewStatus: number,
-  reviewMessage?: string
-) => {
-  const reviewRequest = {
-    id: record.id,
-    reviewMessage: reviewMessage,
-    reviewStatus: reviewStatus,
-  };
-  const res = await doAppReviewUsingPost(reviewRequest);
-  if (res.data.code === 0) {
-    loadData();
-    message.success("审核成功");
-  } else {
-    message.error("审核失败，" + res.data.message);
   }
 };
 
@@ -198,48 +170,24 @@ const columns = [
   },
   {
     title: "名称",
-    dataIndex: "appName",
+    dataIndex: "resultName",
   },
   {
     title: "描述",
-    dataIndex: "appDesc",
+    dataIndex: "resultDesc",
   },
   {
-    title: "图标",
-    dataIndex: "appIcon",
-    slotName: "appIcon",
+    title: "图片",
+    dataIndex: "resultPicture",
+    slotName: "resultPicture",
   },
   {
-    title: "应用类型",
-    dataIndex: "appType",
-    slotName: "appType",
+    title: "结果属性",
+    dataIndex: "resultProp",
   },
   {
-    title: "评分策略",
-    dataIndex: "scoringStrategy",
-    slotName: "scoringStrategy",
-  },
-  {
-    title: "审核状态",
-    dataIndex: "reviewStatus",
-    slotName: "reviewStatus",
-  },
-  {
-    title: "审核信息",
-    dataIndex: "reviewMessage",
-  },
-  {
-    title: "审核时间",
-    dataIndex: "reviewTime",
-    slotName: "reviewTime",
-  },
-  {
-    title: "审核人 id",
-    dataIndex: "reviewerId",
-  },
-  {
-    title: "用户 id",
-    dataIndex: "userId",
+    title: "评分范围",
+    dataIndex: "resultScoreRange",
   },
   {
     title: "创建时间",

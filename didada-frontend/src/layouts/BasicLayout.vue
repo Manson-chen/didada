@@ -26,20 +26,21 @@ import GlobalHeader from "@/components/GlobalHeader";
 
 #basicLayout .header {
   margin-bottom: 16px;
-  /*颜色，左有举例，上下举例，要扩散的范围*/
   box-shadow: #eee 1px 1px 5px;
 }
 
 #basicLayout .content {
-  margin-bottom: 28px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto 28px;
   padding: 20px;
-  background: linear-gradient(top right, #fefefe, #fff);
+  background: linear-gradient(to right, #fefefe, #fff);
 }
 
 .footer {
   padding: 16px;
   text-align: center;
-  text-decoration: none;
   background: #efefef;
 }
 </style>

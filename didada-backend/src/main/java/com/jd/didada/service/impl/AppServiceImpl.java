@@ -192,6 +192,15 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         Set<Long> userIdSet = appList.stream().map(App::getUserId).collect(Collectors.toSet());
         Map<Long, List<User>> userIdUserListMap = userService.listByIds(userIdSet).stream()
                 .collect(Collectors.groupingBy(User::getId));
+        // 填充信息
+        appVOList.forEach(appVO -> {
+            Long userId = appVO.getUserId();
+            User user = null;
+            if (userIdUserListMap.containsKey(userId)) {
+                user = userIdUserListMap.get(userId).get(0);
+            }
+            appVO.setUser(userService.getUserVO(user));
+        });
         // endregion
 
         appVOPage.setRecords(appVOList);
