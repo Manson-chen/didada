@@ -101,3 +101,7 @@ knife4j:
         api-rule: package
         api-rule-resources:
           - com.jd.didada.controller
+
+# AI 配置
+ai:
+  apiKey: ec77662a228f2cca1f2e61b293083adf.nKRFOn1SmCder2ip

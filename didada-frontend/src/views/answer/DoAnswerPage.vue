@@ -30,9 +30,10 @@
             circle
             v-if="current === questionContent.length"
             :disabled="!currentAnswer"
+            :loading="submitting"
             @click="doSubmit"
           >
-            查看结果
+            {{ submitting ? "评分中" : "查看结果" }}
           </a-button>
           <a-button v-if="current > 1" circle @click="current -= 1">
             上一题
@@ -69,6 +70,8 @@ const props = withDefaults(defineProps<Props>(), {
     return "";
   },
 });
+
+const submitting = ref(false);
 
 const router = useRouter();
 
@@ -117,7 +120,7 @@ const loadData = async () => {
   }
   // 获取题目信息
   res = await listQuestionVoByPageUsingPost({
-    id: props.appId as any,
+    appId: props.appId as any,
     current: 1,
     pageSize: 1,
     sortField: "createTime",
@@ -164,7 +167,7 @@ const doSubmit = async () => {
     return;
   }
   let res: any;
-
+  submitting.value = true;
   res = await addUserAnswerUsingPost({
     appId: props.appId as any,
     choices: answerList,
@@ -175,6 +178,7 @@ const doSubmit = async () => {
   } else {
     message.error("提交答案失败，" + res.data.message);
   }
+  submitting.value = false;
 };
 </script>
 <style scoped>

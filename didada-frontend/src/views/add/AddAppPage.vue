@@ -143,7 +143,7 @@ const handleSubmit = async () => {
     message.success("操作成功，即将跳转到应用详情页");
     setTimeout(() => {
       // 判断 id 存在则是修改应用，否则创建应用返回的数据就是id
-      router.push(`/app/detail/${props.id ?? res.data.data}`);
+      router.push(`/app/detail/${props.id || res.data.data}`);
     }, 3000);
   } else {
     message.error("操作失败，" + res.data.message);

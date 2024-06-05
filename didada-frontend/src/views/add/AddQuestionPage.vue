@@ -12,9 +12,16 @@
         {{ appId }}
       </a-form-item>
       <a-form-item label="题目列表" :content-flex="false" :merge-props="false">
-        <a-button @click="addQuestion(questionContent.length)">
-          底部添加题目
-        </a-button>
+        <a-space size="medium">
+          <a-button @click="addQuestion(questionContent.length)">
+            底部添加题目
+          </a-button>
+          <!-- AI 生成抽屉-->
+          <AiGenerateQuestionDrawer
+            :appId="appId"
+            :onSuccess="onAiGenerateSuccess"
+          />
+        </a-space>
         <!-- 遍历每道题目 -->
         <div v-for="(question, index) in questionContent" :key="index">
           <a-space size="large">
@@ -99,6 +106,7 @@ import {
   editQuestionUsingPost,
   listQuestionVoByPageUsingPost,
 } from "@/api/questionController";
+import AiGenerateQuestionDrawer from "@/views/add/components/AiGenerateQuestionDrawer.vue";
 
 // 从路由获取id的值
 interface Props {
@@ -173,7 +181,7 @@ const loadData = async () => {
     return;
   }
   const res = await listQuestionVoByPageUsingPost({
-    id: props.appId as any,
+    appId: props.appId as any,
     current: 1,
     pageSize: 1,
     sortField: "createTime",
@@ -228,6 +236,14 @@ const handleSubmit = async () => {
   } else {
     message.error("操作失败，" + res.data.message);
   }
+};
+
+/**
+ * 抽屉组件 ai 生成题目成功
+ */
+const onAiGenerateSuccess = (result: API.QuestionContentDTO[]) => {
+  message.success(`AI 生成题目成功，生成 ${result.length} 道题目`);
+  questionContent.value = [...questionContent.value, ...result];
 };
 </script>
 <style scoped>

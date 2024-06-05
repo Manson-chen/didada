@@ -10,10 +10,14 @@ import com.jd.didada.common.ResultUtils;
 import com.jd.didada.constant.UserConstant;
 import com.jd.didada.exception.BusinessException;
 import com.jd.didada.exception.ThrowUtils;
+import com.jd.didada.manager.AiManager;
 import com.jd.didada.model.dto.question.*;
+import com.jd.didada.model.entity.App;
 import com.jd.didada.model.entity.Question;
 import com.jd.didada.model.entity.User;
+import com.jd.didada.model.enums.AppTypeEnum;
 import com.jd.didada.model.vo.QuestionVO;
+import com.jd.didada.service.AppService;
 import com.jd.didada.service.QuestionService;
 import com.jd.didada.service.UserService;
 import lombok.extern.slf4j.Slf4j;
@@ -40,6 +44,12 @@ public class QuestionController {
 
     @Resource
     private UserService userService;
+
+    @Resource
+    private AppService appService;
+
+    @Resource
+    private AiManager aiManager;
 
     // region 增删改查
 
@@ -242,4 +252,71 @@ public class QuestionController {
     }
 
     // endregion
+
+    // region AI 生成功能
+
+    /**
+     * 生成题目系统预设
+     */
+    private static final String GENERATE_QUESTION_SYSTEM_MESSAGE = "你是一位严谨的出题专家，我会给你如下信息：\n" +
+            "```\n" +
+            "应用名称，\n" +
+            "【【【应用描述】】】，\n" +
+            "应用类别，\n" +
+            "要生成的题目数，\n" +
+            "每个题目的选项数\n" +
+            "```\n" +
+            "\n" +
+            "请你根据上述信息，按照以下步骤来出题：\n" +
+            "1. 要求：题目和选项尽可能地短，题目不要包含序号，每题的选项数以我提供的为主，题目不能重复\n" +
+            "2. 严格按照下面的 json 格式输出题目和选项\n" +
+            "```\n" +
+            "[{\"options\":[{\"value\":\"选项内容\",\"key\":\"A\"},{\"value\":\"\",\"key\":\"B\"}],\"title\":\"题目标题\"}]\n" +
+            "```\n" +
+            "title 是题目，options 是选项，每个选项的 key 按照英文字母序（比如 A、B、C、D）以此类推，value 是选项内容\n" +
+            "3. 检查题目是否包含序号，若包含序号则去除序号\n" +
+            "4. 返回的题目列表格式必须为 JSON 数组";
+
+    /**
+     * 生成题目的用户消息
+     * @param app
+     * @param questionNumber
+     * @param optionNumber
+     * @return
+     */
+    private String getGenerateQuestionUserMessage(App app, int questionNumber, int optionNumber) {
+        StringBuilder userMessage = new StringBuilder();
+        userMessage.append(app.getAppName()).append("\n");
+        userMessage.append(app.getAppDesc()).append("\n");
+        userMessage.append(AppTypeEnum.getEnumByValue(app.getAppType())).append("\n");
+        userMessage.append(questionNumber).append("\n");
+        userMessage.append(optionNumber).append("\n");
+        return userMessage.toString();
+    }
+
+    @PostMapping("/ai_generate")
+    public BaseResponse<List<QuestionContentDTO>> aiGenerateQuestion(
+            @RequestBody AiGenerateQuestionRequest aiGenerateQuestionRequest) {
+        ThrowUtils.throwIf(aiGenerateQuestionRequest == null, ErrorCode.PARAMS_ERROR);
+        // 获取参数
+        Long appId = aiGenerateQuestionRequest.getAppId();
+        int questionNumber = aiGenerateQuestionRequest.getQuestionNumber();
+        int optionNumber = aiGenerateQuestionRequest.getOptionNumber();
+        // 获取应用
+        App app = appService.getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR);
+        // 封装 Prompt 为生成题目的用户信息
+        String userMessage = getGenerateQuestionUserMessage(app, questionNumber, optionNumber);
+        // 调用 AI 生成题目
+        String result = aiManager.doSyncRequest(GENERATE_QUESTION_SYSTEM_MESSAGE, userMessage, null);
+        // 抽取想要的结果
+        int start = result.indexOf("[");
+        int end = result.lastIndexOf("]");
+        String resultJson = result.substring(start, end + 1);
+        List<QuestionContentDTO> questionContentDTOList = JSONUtil.toList(resultJson, QuestionContentDTO.class);
+        return ResultUtils.success(questionContentDTOList);
+    }
+
+
+        // endregion
 }
