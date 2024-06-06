@@ -1,8 +1,12 @@
 package com.jd.didada.scoring;
 
+import cn.hutool.core.util.StrUtil;
+import cn.hutool.crypto.digest.DigestUtil;
 import cn.hutool.json.JSON;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.jd.didada.manager.AiManager;
 import com.jd.didada.model.dto.question.QuestionAnswerDTO;
 import com.jd.didada.model.dto.question.QuestionContentDTO;
@@ -14,12 +18,15 @@ import com.jd.didada.model.enums.AppTypeEnum;
 import com.jd.didada.model.vo.QuestionVO;
 import com.jd.didada.service.QuestionService;
 import com.jd.didada.service.ScoringResultService;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 
 import javax.annotation.Resource;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /**
  * AI 测评类应用评分策略
@@ -33,6 +40,19 @@ public class AiTestScoringStrategy implements ScoringStrategy {
     @Resource
     private AiManager aiManager;
 
+    @Resource
+    private RedissonClient redissonClient;
+
+    private static final String AI_ANSWER_LOCK = "AI_ANSWER_LOCK";
+
+    /**
+     * AI 评分结果缓存
+     */
+    private final Cache<String, String> answerCacheMap =
+            Caffeine.newBuilder().initialCapacity(1024)
+                    // 缓存 5 分钟移除
+                    .expireAfterAccess(5L, TimeUnit.MINUTES)
+                    .build();
     /**
      * AI 判题系统预设
      */
@@ -54,34 +74,74 @@ public class AiTestScoringStrategy implements ScoringStrategy {
     @Override
     public UserAnswer doScore(List<String> choices, App app) throws Exception {
         Long appId = app.getId();
-        // 1）根据 id 查询到题目
-        Question question = questionService.getOne(
-                Wrappers.lambdaQuery(Question.class)
-                        .eq(Question::getAppId, appId)
-        );
+        String jsonStr = JSONUtil.toJsonStr(choices);
+        String cacheKey = buildCacheKey(appId, jsonStr);
+        String answerJson = answerCacheMap.getIfPresent(cacheKey);
+        // 如果本地缓存有，直接构造结果返回
+        if (StrUtil.isNotBlank(answerJson)) {
+            // 3）构造返回值，填充答案对象的属性。
+            UserAnswer userAnswer = JSONUtil.toBean(answerJson, UserAnswer.class);
+            userAnswer.setAppId(appId);
+            userAnswer.setAppType(app.getAppType());
+            userAnswer.setScoringStrategy(app.getScoringStrategy());
+            userAnswer.setChoices(jsonStr);
+            return userAnswer;
+        }
 
-        QuestionVO questionVO = QuestionVO.objToVo(question);
-        List<QuestionContentDTO> questionContent = questionVO.getQuestionContent();
+        // 用户答案一样才加锁
+        // 定义锁
+        RLock lock = redissonClient.getLock(AI_ANSWER_LOCK + cacheKey);
 
-        // 2）调用 Ai 获取结果
-        // 封装 Prompt
-        String userMessage = getAiTestScoringUserMessage(app, questionContent, choices);
-        // AI 生成
-        String result = aiManager.doSyncStableRequest(AI_TEST_SCORING_SYSTEM_MESSAGE, userMessage);
-        // 结果处理
-        int start = result.indexOf("{");
-        int end = result.lastIndexOf("}");
-        String resultJson = result.substring(start, end + 1);
+        try {
+            // 竞争锁
+            // 参数：其他线程最多等的时间，过期时间，时间单位
+            boolean res = lock.tryLock(3, 15, TimeUnit.SECONDS);
+            // 没有抢到锁，强行返回，可以加个逻辑，重新获取缓存
+            if (!res) {
+                return null;
+            }
+            // 抢到锁了，继续执行逻辑
+            // 1）根据 id 查询到题目
+            Question question = questionService.getOne(
+                    Wrappers.lambdaQuery(Question.class)
+                            .eq(Question::getAppId, appId)
+            );
+
+            QuestionVO questionVO = QuestionVO.objToVo(question);
+            List<QuestionContentDTO> questionContent = questionVO.getQuestionContent();
+
+            // 2）调用 Ai 获取结果
+            // 封装 Prompt
+            String userMessage = getAiTestScoringUserMessage(app, questionContent, choices);
+            // AI 生成
+            String result = aiManager.doSyncStableRequest(AI_TEST_SCORING_SYSTEM_MESSAGE, userMessage);
+            // 结果处理
+            int start = result.indexOf("{");
+            int end = result.lastIndexOf("}");
+            String resultJson = result.substring(start, end + 1);
+
+            // 没有缓存，缓存结果
+            answerCacheMap.put(cacheKey, resultJson);
 
 
-        // 3）构造返回值，填充答案对象的属性。
-        UserAnswer userAnswer = JSONUtil.toBean(resultJson, UserAnswer.class);
-        userAnswer.setAppId(appId);
-        userAnswer.setAppType(app.getAppType());
-        userAnswer.setScoringStrategy(app.getScoringStrategy());
-        userAnswer.setChoices(JSONUtil.toJsonStr(choices));
+            // 3）构造返回值，填充答案对象的属性。
+            UserAnswer userAnswer = JSONUtil.toBean(resultJson, UserAnswer.class);
+            userAnswer.setAppId(appId);
+            userAnswer.setAppType(app.getAppType());
+            userAnswer.setScoringStrategy(app.getScoringStrategy());
+            userAnswer.setChoices(jsonStr);
 
-        return userAnswer;
+            return userAnswer;
+
+        } finally { // 一定要释放锁，其他线程无法继续执行
+            if (lock != null && lock.isLocked()) {
+                // 只能是本线程才能释放锁
+                // 例如 A 线程要执行 20s > 10s，B 以为 A 线程执行完了，也创建了锁，A 执行完之后把 B 的锁释放了，造成：线程 C 来的时候就直接可以执行
+                if (lock.isHeldByCurrentThread()) {
+                    lock.unlock();
+                }
+            }
+        }
     }
 
     /**
@@ -104,5 +164,9 @@ public class AiTestScoringStrategy implements ScoringStrategy {
         }
         userMessage.append(JSONUtil.toJsonStr(questionAnswerDTOList));
         return userMessage.toString();
+    }
+
+    private String buildCacheKey(Long appId, String choices) {
+        return DigestUtil.md5Hex(appId + ":" + choices);
     }
 }
