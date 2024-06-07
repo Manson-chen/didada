@@ -23,6 +23,7 @@ import com.jd.didada.service.QuestionService;
 import com.jd.didada.service.UserService;
 import com.zhipu.oapi.service.v4.model.ModelData;
 import io.reactivex.Flowable;
+import io.reactivex.Scheduler;
 import io.reactivex.schedulers.Schedulers;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
@@ -56,6 +57,9 @@ public class QuestionController {
 
     @Resource
     private AiManager aiManager;
+
+    @Resource
+    private Scheduler vipScheduler;
 
     // region 增删改查
 
@@ -325,7 +329,7 @@ public class QuestionController {
     }
 
     @GetMapping("/ai_generate/sse")
-    public SseEmitter aiGenerateQuestionSSE(AiGenerateQuestionRequest aiGenerateQuestionRequest) {
+    public SseEmitter aiGenerateQuestionSSE(AiGenerateQuestionRequest aiGenerateQuestionRequest, HttpServletRequest request) {
         ThrowUtils.throwIf(aiGenerateQuestionRequest == null, ErrorCode.PARAMS_ERROR);
         // 获取参数
         Long appId = aiGenerateQuestionRequest.getAppId();
@@ -344,9 +348,17 @@ public class QuestionController {
         AtomicInteger counter = new AtomicInteger(0);
         // 拼接完整题目
         StringBuilder stringBuilder = new StringBuilder();
+
+        // 获取当前登录用户
+        User loginUser = userService.getLoginUser(request);
+        // 默认全局线程池
+        Scheduler scheduler = Schedulers.io();
+        if ("vip".equals(loginUser.getUserRole())) {
+            scheduler = vipScheduler;
+        }
         modelDataFlowable
                 // 异步线程执行
-                .observeOn(Schedulers.io())
+                .observeOn(scheduler)
                 // 取出字符串
                 .map(modelData -> modelData.getChoices().get(0).getDelta().getContent())
                 // 将字符串转化为字符，先把无用的字符串过滤掉，把所有的特殊字符转化为空字符
@@ -370,6 +382,80 @@ public class QuestionController {
                     if (c == '}') {
                         counter.addAndGet(-1);
                         if (counter.get() == 0) {
+                            // 可以拼接题目，并且通过 SSE 返回给前端
+                            sseEmitter.send(JSONUtil.toJsonStr(stringBuilder.toString()));
+                            // 重置，准备拼接下一道题
+                            stringBuilder.setLength(0);
+                        }
+                    }
+
+                })
+                .doOnError((e) -> log.error("sse error", e))
+                .doOnComplete(sseEmitter::complete) // sseEmitter.complete(); 告诉前端完成
+                .subscribe();
+        return sseEmitter;
+    }
+
+    // 仅测试隔离线程使用
+    @Deprecated
+    @GetMapping("/ai_generate/sse/test")
+    public SseEmitter aiGenerateQuestionSSETest(AiGenerateQuestionRequest aiGenerateQuestionRequest, boolean isVip) {
+        ThrowUtils.throwIf(aiGenerateQuestionRequest == null, ErrorCode.PARAMS_ERROR);
+        // 获取参数
+        Long appId = aiGenerateQuestionRequest.getAppId();
+        int questionNumber = aiGenerateQuestionRequest.getQuestionNumber();
+        int optionNumber = aiGenerateQuestionRequest.getOptionNumber();
+        // 获取应用
+        App app = appService.getById(appId);
+        ThrowUtils.throwIf(app == null, ErrorCode.NOT_FOUND_ERROR);
+        // 封装 Prompt 为生成题目的用户信息
+        String userMessage = getGenerateQuestionUserMessage(app, questionNumber, optionNumber);
+        // 建立 SSE 连接对象，0 表示永不超时
+        SseEmitter sseEmitter = new SseEmitter(0L);
+        // 调用 AI 生成题目
+        Flowable<ModelData> modelDataFlowable = aiManager.doStreamRequest(GENERATE_QUESTION_SYSTEM_MESSAGE, userMessage, null);
+        // 左括号计数器，除了默认之外，当回归为 0 时，表示左括号等于右括号，可以截取
+        AtomicInteger counter = new AtomicInteger(0);
+        // 拼接完整题目
+        StringBuilder stringBuilder = new StringBuilder();
+        // 默认全局线程池
+        Scheduler scheduler = Schedulers.single();
+        if (isVip) {
+            scheduler = vipScheduler;
+        }
+        modelDataFlowable
+                // 异步线程执行
+                .observeOn(scheduler)
+                // 取出字符串
+                .map(modelData -> modelData.getChoices().get(0).getDelta().getContent())
+                // 将字符串转化为字符，先把无用的字符串过滤掉，把所有的特殊字符转化为空字符
+                .map(message -> message.replaceAll("\\s", ""))
+                .filter(StrUtil::isNotBlank) // message -> StrUtil.isNotBlank(message)
+                .flatMap(message -> { // 把字符串流分成每个流只有一个字符
+                    List<Character> characterList = new ArrayList<>();
+                    for (Character c : message.toCharArray()) {
+                        characterList.add(c);
+                    }
+                    return Flowable.fromIterable(characterList);
+                })
+                .doOnNext(c -> { // 涉及到括号匹配的算法 - leetcode - 有效的括号
+                    // 如果字符是 '{'，计数器 + 1
+                    if (c == '{') {
+                        counter.addAndGet(1);
+                    }
+                    if (counter.get() > 0) {
+                        stringBuilder.append(c);
+                    }
+                    if (c == '}') {
+                        counter.addAndGet(-1);
+                        if (counter.get() == 0) {
+                            // 输出当前线程的名称
+                            System.out.println(Thread.currentThread().getName());
+                            // 模拟普通用户阻塞
+                            if (!isVip) {
+                                Thread.sleep(10000L);
+                            }
+
                             // 可以拼接题目，并且通过 SSE 返回给前端
                             sseEmitter.send(JSONUtil.toJsonStr(stringBuilder.toString()));
                             // 重置，准备拼接下一道题
