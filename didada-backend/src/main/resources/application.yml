@@ -53,7 +53,7 @@ spring:
         driver-class-name: com.mysql.cj.jdbc.Driver
         jdbc-url: jdbc:mysql://localhost:3306/didada #?allowPublicKeyRetrieval=true&useSSL=false&autoReconnect=true&characterEncoding=utf8
         username: root
-        password: 123456
+        password: Qwertyuiop123
     # 规则配置
     rules:
       sharding:

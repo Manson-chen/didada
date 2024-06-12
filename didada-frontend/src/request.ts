@@ -1,8 +1,13 @@
 import axios from "axios";
 import { Message } from "@arco-design/web-vue";
 
+// 是否是开发环境
+export const isDev = process.env.NODE_ENV === "development";
+
 const myAxios = axios.create({
-  baseURL: "http://localhost:8101",
+  baseURL: isDev
+    ? "http://localhost:8101"
+    : "https://didada-backend-110829-4-1327185844.sh.run.tcloudbase.com/",
   timeout: 60000,
   withCredentials: true,
 });
